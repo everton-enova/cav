@@ -74,6 +74,28 @@ var ABAS_SES = {
 
 var ABA_ESCOLA = 'Tabela I.B2.77';
 
+// descrições originais da aba índice (fallback — nunca se perdem)
+var DESCRICOES = {
+  'análise': 'Análise consolidada do PISA 2025 com destaque para a Bahia',
+  'Tabela I.B2.1': 'Pontuação média e variação no desempenho em ciências',
+  'Tabela I.B2.2': 'Pontuação média e variação no desempenho em leitura',
+  'Tabela I.B2.3': 'Pontuação média e variação no desempenho em matemática',
+  'Tabela I.B2.4': 'Pontuação média e variação no desempenho em resolução computacional de problemas',
+  'Tabela I.B2.9': 'Percentual de estudantes em cada nível de proficiência em ciências',
+  'Tabela I.B2.10': 'Percentual de estudantes em cada nível de proficiência em leitura',
+  'Tabela I.B2.11': 'Percentual de estudantes em cada nível de proficiência em matemática',
+  'Tabela I.B2.12': 'Percentual de estudantes em cada nível de proficiência em resolução computacional de problemas',
+  'Tabela I.B2.17': 'Desempenho em ciências, por gênero',
+  'Tabela I.B2.18': 'Desempenho em leitura, por gênero',
+  'Tabela I.B2.19': 'Desempenho em matemática, por gênero',
+  'Tabela I.B2.20': 'Desempenho em resolução computacional de problemas, por gênero',
+  'Tabela I.B2.29': 'Status socioeconômico e desempenho em ciências',
+  'Tabela I.B2.30': 'Status socioeconômico e desempenho em leitura',
+  'Tabela I.B2.31': 'Status socioeconômico e desempenho em matemática',
+  'Tabela I.B2.32': 'Status socioeconômico e desempenho em resolução computacional de problemas',
+  'Tabela I.B2.77': 'Tipo de escola'
+};
+
 // estados vizinhos / do Nordeste para comparação direta com a Bahia
 var VIZINHOS = ['Bahia', 'Alagoas', 'Sergipe', 'Pernambuco', 'Paraíba',
   'Rio Grande do Norte', 'Ceará', 'Piauí', 'Maranhão'];
@@ -455,15 +477,20 @@ function alimentarIndice_(shAnalise, secoes) {
   var idx = ss.getSheetByName(ABA_INDICE) || ss.getSheetByName('indice');
   if (!idx) idx = ss.insertSheet(ABA_INDICE, 0);
 
-  // guarda descrições já existentes (nome da aba -> descrição)
+  // guarda descrições já existentes (ignora lixo de fórmula/#ERROR!)
   var desc = {};
   if (idx.getLastRow() > 0) {
     idx.getDataRange().getValues().forEach(function (row) {
       var a = String(row[0] || '').trim();
       var b = String(row[1] || '').trim();
-      if (a && b && a !== 'Documento') desc[a] = b;
+      if (!a || !b) return;
+      if (a === 'Documento' || a === 'ÍNDICE') return;
+      if (a.charAt(0) === '=' || a.indexOf('#ERROR') === 0) return;
+      if (b.charAt(0) === '=' || b.indexOf('#ERROR') === 0) return;
+      desc[a] = b;
     });
   }
+  function descricao(nome) { return desc[nome] || DESCRICOES[nome] || ''; }
 
   idx.clear();
 
@@ -471,11 +498,11 @@ function alimentarIndice_(shAnalise, secoes) {
   function push(r, t) { lines.push(r); types.push(t || ''); }
   push(['ÍNDICE'], 'titulo');
   push(['Documento', 'Descrição / Acesso'], 'header');
-  push(['análise', desc['análise'] || 'Análise consolidada do PISA 2025 com destaque para a Bahia'], 'destaque');
+  push(['análise', descricao('análise')], 'destaque');
   ss.getSheets().forEach(function (s) {
     var n = s.getName();
     if (n === ABA_INDICE || n === 'análise' || n === 'indice') return;
-    push([n, desc[n] || ''], '');
+    push([n, descricao(n)], '');
   });
   push(['']);
   push(['ANÁLISE PISA 2025 — IR PARA O BLOCO'], 'secao');
@@ -616,8 +643,13 @@ function num(v) {
 function escaparFormula(s) { return String(s).replace(/"/g, '""'); }
 
 function aplicarLink_(sheet, row, texto, url) {
-  var v = SpreadsheetApp.newRichTextValue().setText(texto).setLinkUrl(url).build();
-  sheet.getRange(row, 1).setRichTextValue(v);
+  try {
+    var v = SpreadsheetApp.newRichTextValue().setText(texto).setLinkUrl(url).build();
+    sheet.getRange(row, 1).setRichTextValue(v);
+  } catch (e) {
+    // se o link falhar por qualquer motivo, garante ao menos o texto
+    sheet.getRange(row, 1).setValue(texto);
+  }
 }
 
 function maxColunas(linhas) {
