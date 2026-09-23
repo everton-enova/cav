@@ -25,6 +25,11 @@
  *   - Cria 3 gráficos: ranking por UF (Bahia destacada), radar de equidade e
  *     linha comparando a Bahia com os estados vizinhos.
  *   - Reescreve a aba "índice" como um sumário navegável (links nativos).
+ *   - Padroniza a tipografia de TODA a planilha: fonte Inter, escala de
+ *     tamanhos e paleta de cores consistentes (inclusive as 17 tabelas de origem).
+ *
+ *  Para reaplicar SÓ o visual, sem regerar a análise, rode  padronizarPlanilha().
+ *  Obs.: a fonte Inter precisa estar disponível no seletor de fontes do Sheets.
  *
  *  Fonte: PISA 2025. A linha "Brasil" está vazia nas tabelas originais, então
  *  usamos a média simples entre as 27 UFs como referência nacional.
@@ -99,6 +104,23 @@ var DESCRICOES = {
 // estados vizinhos / do Nordeste para comparação direta com a Bahia
 var VIZINHOS = ['Bahia', 'Alagoas', 'Sergipe', 'Pernambuco', 'Paraíba',
   'Rio Grande do Norte', 'Ceará', 'Piauí', 'Maranhão'];
+
+// ===========================================================================
+//  DESIGN SYSTEM — tipografia e cores padronizadas
+// ===========================================================================
+var FONTE = 'Inter';
+var TAM = { titulo: 16, secao: 13, subsecao: 11, header: 10, corpo: 10, nota: 9 };
+var COR = {
+  vermelho: '#c8102e',   // títulos
+  azul: '#1a4f9c',       // seções
+  azulClaro: '#d9e2f3',  // subseções
+  cinza: '#eef3fb',      // cabeçalhos de tabela
+  cinza2: '#e8f0fe',     // cabeçalhos de bloco
+  amarelo: '#fff2cc',    // destaque Bahia
+  verde: '#e6f4ea',      // resultado positivo
+  texto: '#202124',
+  branco: '#ffffff'
+};
 
 
 // ---------------------------------------------------------------------------
@@ -367,6 +389,9 @@ function gerarAbaAnalise() {
   var secoes = [];
   linhas.forEach(function (l, k) { if (estilo[k] === 'secao') secoes.push({ titulo: String(l[0]), linha: k + 1 }); });
   alimentarIndice_(sh, secoes);
+
+  // ---------- padronização visual de TODA a planilha (fonte Inter) ----------
+  try { padronizarPlanilha(); } catch (e) { Logger.log('Falha ao padronizar visual: ' + e); }
 
   ss.toast('Aba "análise" gerada e aba "índice" atualizada!', 'Concluído', 6);
   return sh.getName();
@@ -665,4 +690,132 @@ function padronizar(linhas) {
     while (r.length < m) r.push('');
     return r;
   });
+}
+
+
+// ===========================================================================
+//  PADRONIZAÇÃO VISUAL — fonte Inter + tamanhos + cores consistentes
+//  Rode  padronizarPlanilha()  a qualquer momento para reaplicar o padrão.
+// ===========================================================================
+function padronizarPlanilha() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  ss.getSheets().forEach(function (sh) {
+    var n = sh.getName();
+    try {
+      if (n === 'análise') estilizarAnalise_(sh);
+      else if (n === ABA_INDICE || n === 'indice') estilizarIndice_(sh);
+      else estilizarTabelaFonte_(sh);
+    } catch (e) {
+      Logger.log('Não foi possível estilizar a aba "' + n + '": ' + e);
+    }
+  });
+}
+
+function estilizarTabelaFonte_(sh) {
+  var lastRow = sh.getLastRow(), lastCol = sh.getLastColumn();
+  if (lastRow < 1 || lastCol < 1) return;
+  var dados = sh.getRange(1, 1, lastRow, lastCol).getValues();
+
+  // primeira linha de dados (Brasil ou uma UF)
+  var primeiraDados = -1;
+  for (var i = 0; i < dados.length; i++) {
+    var a = String(dados[i][0] || '').trim();
+    if (a === 'Brasil' || UFS.indexOf(a) !== -1) { primeiraDados = i + 1; break; }
+  }
+
+  // base: Inter em toda a área usada
+  sh.getRange(1, 1, lastRow, lastCol)
+    .setFontFamily(FONTE).setFontColor(COR.texto).setVerticalAlignment('middle');
+
+  // corpo da tabela
+  var inicio = primeiraDados > 0 ? primeiraDados : 1;
+  sh.getRange(inicio, 1, lastRow - inicio + 1, lastCol).setFontSize(TAM.corpo);
+
+  // título (1ª linha não vazia antes da tabela)
+  var titleRow = -1;
+  var limite = primeiraDados > 0 ? primeiraDados - 1 : Math.min(lastRow, 3);
+  for (var i = 0; i < limite; i++) {
+    if (temConteudo(dados[i])) { titleRow = i + 1; break; }
+  }
+  if (titleRow > 0) {
+    sh.getRange(titleRow, 1, 1, lastCol)
+      .setFontSize(TAM.titulo).setFontWeight('bold').setFontColor(COR.vermelho);
+  }
+
+  // cabeçalhos (linhas não vazias entre título e dados)
+  for (var i = 1; i < primeiraDados - 1; i++) {
+    if (i + 1 === titleRow) continue;
+    if (temConteudo(dados[i])) {
+      sh.getRange(i + 1, 1, 1, lastCol)
+        .setFontSize(TAM.header).setFontWeight('bold')
+        .setBackground(COR.cinza).setFontColor(COR.azul)
+        .setHorizontalAlignment('center').setVerticalAlignment('middle').setWrap(true);
+    }
+  }
+
+  // nome da UF em negrito
+  if (primeiraDados > 0) {
+    sh.getRange(primeiraDados, 1, lastRow - primeiraDados + 1, 1).setFontWeight('bold');
+  }
+
+  // notas de rodapé
+  for (var i = Math.max(inicio - 1, 0); i < lastRow; i++) {
+    var t = String(dados[i][0] || '');
+    if (t.charAt(0) === '*' || /^(Nota|Consulte|As regi|\d\.)/i.test(t)) {
+      sh.getRange(i + 1, 1, 1, lastCol).setFontSize(TAM.nota).setFontStyle('italic').setFontColor('#5f6368');
+    }
+  }
+}
+
+function estilizarAnalise_(sh) {
+  var lastRow = sh.getLastRow(), lastCol = sh.getLastColumn();
+  if (lastRow < 1) return;
+  sh.getRange(1, 1, lastRow, lastCol)
+    .setFontFamily(FONTE).setFontSize(TAM.corpo).setFontColor(COR.texto).setVerticalAlignment('top');
+
+  sh.getRange(1, 1, 1, lastCol)
+    .setFontSize(TAM.titulo).setFontWeight('bold').setBackground(COR.vermelho).setFontColor(COR.branco);
+
+  var vals = sh.getRange(1, 1, lastRow, 1).getValues();
+  for (var i = 0; i < lastRow; i++) {
+    var t = String(vals[i][0] || '');
+    var row = i + 1;
+    if (/^\d+\.\d+\s/.test(t)) {
+      sh.getRange(row, 1, 1, lastCol).setFontSize(TAM.subsecao).setFontWeight('bold').setBackground(COR.azulClaro);
+    } else if (/^\d+\.\s/.test(t)) {
+      sh.getRange(row, 1, 1, lastCol).setFontSize(TAM.secao).setFontWeight('bold').setBackground(COR.azul).setFontColor(COR.branco);
+    } else if (t === 'UF' || t === 'Indicador') {
+      sh.getRange(row, 1, 1, lastCol).setFontSize(TAM.header).setFontWeight('bold').setBackground(COR.cinza2);
+    } else if (t === UF_DESTAQUE) {
+      sh.getRange(row, 1, 1, lastCol).setFontWeight('bold').setBackground(COR.amarelo);
+    } else if (t.charAt(0) === '•') {
+      sh.getRange(row, 1).setFontSize(TAM.nota);
+    }
+  }
+}
+
+function estilizarIndice_(sh) {
+  var lastRow = sh.getLastRow(), lastCol = sh.getLastColumn();
+  if (lastRow < 1) return;
+  sh.getRange(1, 1, lastRow, lastCol)
+    .setFontFamily(FONTE).setFontSize(TAM.corpo).setFontColor(COR.texto).setVerticalAlignment('middle');
+  sh.getRange(1, 1, 1, lastCol)
+    .setFontSize(TAM.titulo).setFontWeight('bold').setBackground(COR.vermelho).setFontColor(COR.branco);
+  sh.getRange(2, 1, 1, lastCol).setFontWeight('bold').setBackground(COR.cinza2);
+
+  var vals = sh.getRange(1, 1, lastRow, 1).getValues();
+  for (var i = 0; i < lastRow; i++) {
+    var t = String(vals[i][0] || '');
+    var row = i + 1;
+    if (t === 'análise') {
+      sh.getRange(row, 1, 1, lastCol).setBackground(COR.amarelo).setFontWeight('bold');
+    } else if (/^ANÁLISE/.test(t)) {
+      sh.getRange(row, 1, 1, lastCol).setBackground(COR.azul).setFontColor(COR.branco).setFontWeight('bold');
+    }
+  }
+}
+
+function temConteudo(linha) {
+  for (var i = 0; i < linha.length; i++) if (String(linha[i]).trim() !== '') return true;
+  return false;
 }
