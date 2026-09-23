@@ -20,9 +20,11 @@
  *       3. Diferenças de gênero
  *       4. Status socioeconômico (ESCS)
  *       5. Tipo de escola
- *       6. Notas metodológicas
- *   - Cria 2 gráficos: ranking por UF (Bahia destacada) e radar de equidade.
- *   - Reescreve a aba "índice" como um sumário navegável (com links).
+ *       6. Resiliência socioeconômica (ranking)
+ *       7. Notas metodológicas
+ *   - Cria 3 gráficos: ranking por UF (Bahia destacada), radar de equidade e
+ *     linha comparando a Bahia com os estados vizinhos.
+ *   - Reescreve a aba "índice" como um sumário navegável (links nativos).
  *
  *  Fonte: PISA 2025. A linha "Brasil" está vazia nas tabelas originais, então
  *  usamos a média simples entre as 27 UFs como referência nacional.
@@ -71,6 +73,10 @@ var ABAS_SES = {
 };
 
 var ABA_ESCOLA = 'Tabela I.B2.77';
+
+// estados vizinhos / do Nordeste para comparação direta com a Bahia
+var VIZINHOS = ['Bahia', 'Alagoas', 'Sergipe', 'Pernambuco', 'Paraíba',
+  'Rio Grande do Norte', 'Ceará', 'Piauí', 'Maranhão'];
 
 
 // ---------------------------------------------------------------------------
@@ -277,8 +283,22 @@ function gerarAbaAnalise() {
   });
   branco();
 
-  // ====================== BLOCO 6 ======================
-  add(['6. NOTAS METODOLÓGICAS E ALERTAS'], 'secao');
+  // ====================== BLOCO 6: RESILIÊNCIA ======================
+  add(['6. RESILIÊNCIA SOCIOECONÔMICA — RANKING'], 'secao');
+  add(['UF', 'Resilientes Ciências (%)', 'Resilientes Leitura (%)', 'Resilientes Matemática (%)',
+       'Resilientes Res.probl. (%)', 'Média (%)'], 'header');
+  var resilMedia = mediaPorUF(sesResil);
+  UFS.slice().sort(function (a, b) { return (resilMedia[b] || 0) - (resilMedia[a] || 0); }).forEach(function (uf) {
+    add([uf,
+      num(sesResil['Ciências'][uf]), num(sesResil['Leitura'][uf]),
+      num(sesResil['Matemática'][uf]), num(sesResil['Resolução de problemas'][uf]),
+      Math.round((resilMedia[uf] || 0) * 10) / 10
+    ], uf === UF_DESTAQUE ? 'bahia' : '');
+  });
+  branco();
+
+  // ====================== BLOCO 7 ======================
+  add(['7. NOTAS METODOLÓGICAS E ALERTAS'], 'secao');
   [
     '• Fonte: PISA 2025. Os resultados são por unidade federativa.',
     '• A linha "Brasil" está vazia nas tabelas originais: a referência usada é a média simples das 27 UFs.',
@@ -399,8 +419,31 @@ function criarGraficos_(sh, ultimaLinha, nCol, dados) {
     .build();
   sh.insertChart(radarChart);
 
+  // ----- Linha: Bahia vs estados vizinhos (Nordeste) por domínio -----
+  var rowViz = rowRadar + 8;
+  var viz = [['Domínio'].concat(VIZINHOS)];
+  DOMINIOS.forEach(function (d) {
+    var linha = [d];
+    VIZINHOS.forEach(function (uf) { linha.push(num(dados.mediasPorDom[d][uf])); });
+    viz.push(linha);
+  });
+  sh.getRange(rowViz, helperCol, viz.length, 1 + VIZINHOS.length).setValues(viz);
+
+  var coresViz = ['#c8102e', '#9aa0a6', '#b7b7b7', '#c8c8c8', '#d9d9d9', '#e0e0e0', '#e8e8e8', '#efefef', '#f5f5f5'];
+  var lineChart = sh.newChart()
+    .setChartType(Charts.ChartType.LINE)
+    .addRange(sh.getRange(rowViz, helperCol, viz.length, 1 + VIZINHOS.length))
+    .setPosition(ultimaLinha + 30, 9, 0, 0)
+    .setOption('title', 'Bahia e estados vizinhos — desempenho por domínio')
+    .setOption('legend', { position: 'right' })
+    .setOption('colors', coresViz)
+    .setOption('pointSize', 6)
+    .setOption('width', 620).setOption('height', 480)
+    .build();
+  sh.insertChart(lineChart);
+
   // esconde as colunas de apoio
-  sh.hideColumns(helperCol, 3);
+  sh.hideColumns(helperCol, 10);
 }
 
 
@@ -450,18 +493,19 @@ function alimentarIndice_(shAnalise, secoes) {
     else if (t === 'secao') idx.getRange(r, 1, 1, nCol).setBackground('#1a4f9c').setFontColor('#ffffff').setFontWeight('bold');
   }
 
-  // hyperlinks: linhas das abas -> link para a aba; linhas de seção -> link para o bloco
+  // links nativos (RichText) — funcionam em qualquer idioma, sem fórmula
+  var ssId = ss.getId();
+  var base = 'https://docs.google.com/spreadsheets/d/' + ssId + '/edit';
   var gidAnalise = shAnalise.getSheetId();
   var linhasSecao = {};
   secoes.forEach(function (s) { linhasSecao[s.titulo] = s.linha; });
   for (var j = 0; j < lines.length; j++) {
     var nome = String(lines[j][0] || '');
     if (types[j] === 'destaque' || (j > 1 && types[j] === '' && ss.getSheetByName(nome))) {
-      var gid = ss.getSheetByName(nome).getSheetId();
-      idx.getRange(j + 1, 1).setFormula('=HYPERLINK("#gid=' + gid + '&range=A1","' + escaparFormula(nome) + '")');
+      var alvo = ss.getSheetByName(nome);
+      if (alvo) aplicarLink_(idx, j + 1, nome, base + '#gid=' + alvo.getSheetId() + '&range=A1');
     } else if (types[j] === 'link' && linhasSecao[nome]) {
-      idx.getRange(j + 1, 1).setFormula('=HYPERLINK("#gid=' + gidAnalise + '&range=A' + linhasSecao[nome] + '","' +
-        escaparFormula(nome) + '")');
+      aplicarLink_(idx, j + 1, nome, base + '#gid=' + gidAnalise + '&range=A' + linhasSecao[nome]);
     }
   }
 
@@ -570,6 +614,11 @@ function num(v) {
 }
 
 function escaparFormula(s) { return String(s).replace(/"/g, '""'); }
+
+function aplicarLink_(sheet, row, texto, url) {
+  var v = SpreadsheetApp.newRichTextValue().setText(texto).setLinkUrl(url).build();
+  sheet.getRange(row, 1).setRichTextValue(v);
+}
 
 function maxColunas(linhas) {
   var m = 0;
