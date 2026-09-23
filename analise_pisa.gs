@@ -118,6 +118,8 @@ var COR = {
   cinza2: '#e8f0fe',     // cabeçalhos de bloco
   amarelo: '#fff2cc',    // destaque Bahia
   verde: '#e6f4ea',      // resultado positivo
+  zebra1: '#ffffff',     // faixa par
+  zebra2: '#f5f8fd',     // faixa ímpar
   texto: '#202124',
   branco: '#ffffff'
 };
@@ -753,9 +755,15 @@ function estilizarTabelaFonte_(sh) {
     }
   }
 
-  // nome da UF em negrito
+  // nome da UF em negrito + faixas zebra no bloco de dados
   if (primeiraDados > 0) {
-    sh.getRange(primeiraDados, 1, lastRow - primeiraDados + 1, 1).setFontWeight('bold');
+    var ultimaDados = primeiraDados;
+    for (var i = 0; i < dados.length; i++) {
+      var a = String(dados[i][0] || '').trim();
+      if (a === 'Brasil' || UFS.indexOf(a) !== -1) ultimaDados = i + 1;
+    }
+    sh.getRange(primeiraDados, 1, ultimaDados - primeiraDados + 1, 1).setFontWeight('bold');
+    aplicarZebra_(sh, primeiraDados - 1, ultimaDados, lastCol);
   }
 
   // notas de rodapé
@@ -792,6 +800,28 @@ function estilizarAnalise_(sh) {
       sh.getRange(row, 1).setFontSize(TAM.nota);
     }
   }
+
+  // faixas zebra sob cada cabeçalho 'UF' (não mexe no bloco 0.1, que é colorido)
+  var c1 = sh.getRange(1, 1, lastRow, 1).getValues();
+  for (var i = 0; i < lastRow; i++) {
+    if (String(c1[i][0] || '') === 'UF') {
+      var fim = i + 1;
+      for (var k = i + 1; k < lastRow; k++) {
+        var a = String(c1[k][0] || '');
+        if (a === '' || a === 'UF' || a === 'Indicador' || /^\d+\./.test(a)) break;
+        fim = k + 1;
+      }
+      if (fim > i + 1) aplicarZebra_(sh, i + 1, fim, lastCol);
+    }
+  }
+
+  // reaplica o destaque da Bahia por cima das faixas
+  for (var i = 0; i < lastRow; i++) {
+    var t = String(c1[i][0] || '');
+    if (t === UF_DESTAQUE || /^Posição da Bahia/.test(t)) {
+      sh.getRange(i + 1, 1, 1, lastCol).setBackground(COR.amarelo).setFontWeight('bold');
+    }
+  }
 }
 
 function estilizarIndice_(sh) {
@@ -818,4 +848,18 @@ function estilizarIndice_(sh) {
 function temConteudo(linha) {
   for (var i = 0; i < linha.length; i++) if (String(linha[i]).trim() !== '') return true;
   return false;
+}
+
+/** Aplica faixas zebra de headerRow+1 até endRow (1-based), em uma única chamada. */
+function aplicarZebra_(sh, headerRow, endRow, lastCol) {
+  var n = endRow - headerRow;
+  if (n < 1 || lastCol < 1) return;
+  var colors = [];
+  for (var i = 0; i < n; i++) {
+    var cor = (i % 2 === 0) ? COR.zebra1 : COR.zebra2;
+    var linha = [];
+    for (var j = 0; j < lastCol; j++) linha.push(cor);
+    colors.push(linha);
+  }
+  sh.getRange(headerRow + 1, 1, n, lastCol).setBackgrounds(colors);
 }
